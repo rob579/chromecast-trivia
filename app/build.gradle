@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.rob579.chromecasttrivia'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.rob579.chromecasttrivia'
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName '0.1'
+    }
+
+    // A fixed key checked into the repo, so every build can be installed
+    // over the previous one without uninstalling first.
+    signingConfigs {
+        debug {
+            storeFile rootProject.file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
