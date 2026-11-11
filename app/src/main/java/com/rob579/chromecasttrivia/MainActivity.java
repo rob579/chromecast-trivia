@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
     // ---- Quiz state: one JSON document, kept across restarts ----
 
     synchronized String getState() {
-        return prefs.getString("state", "{\"videoId\":\"\",\"current\":0,\"rounds\":[]}");
+        return prefs.getString("state", "{\"videoId\":\"\",\"listUrl\":\"\",\"current\":0,\"rounds\":[]}");
     }
 
     /** Called from the web server thread when the phone saves a change. */
@@ -109,6 +109,7 @@ public class MainActivity extends Activity {
         JSONObject in = new JSONObject(json);
         JSONObject out = new JSONObject();
         out.put("videoId", in.optString("videoId", "").trim());
+        out.put("listUrl", in.optString("listUrl", "").trim());
         JSONArray rounds = in.optJSONArray("rounds");
         JSONArray cleanRounds = new JSONArray();
         if (rounds != null) {

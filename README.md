@@ -6,9 +6,11 @@ trivia quiz video with the current round name and the team's answers on screen.
 ## How it works
 
 The app runs a small web page on the Chromecast itself. Scan the QR code on
-the TV with a phone on the same Wi-Fi to:
+the TV with a phone, or type the address shown under it into a laptop browser on the
+same Wi-Fi, to:
 
-- paste the YouTube link for the quiz video
+- pick the quiz video from a channel's or playlist's 15 most recent videos,
+  or paste a link to any video
 - set up rounds (name and number of questions)
 - choose the current round
 - type answers, which appear on the TV as you type

@@ -38,12 +38,23 @@
   .warn { color: #ff7b7b; }
   .empty { color: #9fb0e0; padding: 8px 0; }
   #keys { display: none; }
+  #vidhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+  #vidhead button { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+  #videos { max-height: 460px; overflow-y: auto; margin-top: 8px; }
+  .vid { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left;
+         padding: 6px; margin-top: 6px; background: #0e1220; }
+  .vid img { width: 112px; height: 63px; border-radius: 6px; flex: none; object-fit: cover; background: #000; }
+  .vid .t { font-size: 15px; line-height: 1.25; }
+  .vid .d { font-size: 12px; color: #9fb0e0; margin-top: 2px; }
+  .vid.on { outline: 2px solid #ffcd3c; }
+  .vid.on .d { color: #ffcd3c; }
   /* Laptop: setup on the left, answers on the right. */
   @media (min-width: 900px) {
     body { max-width: 1100px; margin: 0 auto; padding: 20px 20px 48px; }
-    #grid { display: grid; grid-template-columns: 1fr 1.2fr; grid-template-rows: auto 1fr;
-            grid-template-areas: "pb ans" "setup ans"; gap: 0 16px; align-items: start; }
+    #grid { display: grid; grid-template-columns: 1fr 1.2fr; grid-template-rows: auto auto 1fr;
+            grid-template-areas: "pb ans" "vid ans" "setup ans"; gap: 0 16px; align-items: start; }
     #pbcard { grid-area: pb; } #anscard { grid-area: ans; } #setup { grid-area: setup; }
+    #vidcard { grid-area: vid; }
     #chips { flex-wrap: wrap; overflow: visible; }
     #keys { display: block; }
   }
@@ -70,13 +81,23 @@
   <p class="hint" id="keys">Keyboard: Enter or ↓ next answer · ↑ previous answer · Alt+↓ / Alt+↑ next / previous round · Esc play / pause</p>
 </div>
 
-<details class="card" id="setup">
-  <summary>Quiz setup</summary>
-  <p class="label" style="margin-top:12px">YouTube link</p>
-  <input id="video" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="Paste the quiz video link">
-  <div id="videoMsg" class="hint"></div>
+<details class="card" id="vidcard">
+  <summary>Video</summary>
+  <p class="label" style="margin-top:12px">Channel or playlist link</p>
+  <input id="list" inputmode="url" autocomplete="off" autocapitalize="off"
+         placeholder="Channel page, playlist, or any video from the channel">
+  <div id="vidhead" hidden><span class="label" id="listTitle" style="margin:0"></span><button id="refresh">Refresh</button></div>
+  <div id="listMsg" class="hint"></div>
+  <div id="videos"></div>
 
-  <p class="label" style="margin-top:16px">Rounds: name and number of questions</p>
+  <p class="label" style="margin-top:16px">Or paste a link to one video</p>
+  <input id="video" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="YouTube video link">
+  <div id="videoMsg" class="hint"></div>
+</details>
+
+<details class="card" id="setup">
+  <summary>Rounds</summary>
+  <p class="label" style="margin-top:12px">Name and number of questions</p>
   <div id="rounds"></div>
   <div class="row">
     <button id="add">Add round</button>
@@ -86,7 +107,8 @@
 </div>
 
 <script>
-  var state = { videoId: '', current: 0, rounds: [] };
+  var state = { videoId: '', listUrl: '', current: 0, rounds: [] };
+  var videoList = [];
   var saveTimer = null;
   function $(id) { return document.getElementById(id); }
 
@@ -151,7 +173,7 @@
     if (!state.rounds.length) {
       var e = document.createElement('div');
       e.className = 'empty';
-      e.textContent = 'No rounds yet. Add them under Quiz setup below.';
+      e.textContent = 'No rounds yet. Add them under Rounds.';
       box.appendChild(e);
     }
     state.rounds.forEach(function (r, i) {
@@ -246,8 +268,66 @@
     if (!id) { msg.className = 'hint warn'; msg.textContent = "That doesn't look like a YouTube link."; return; }
     state.videoId = id;
     msg.className = 'hint'; msg.textContent = 'Video set. It will start on the TV.';
-    saveNow();
+    saveNow(); renderVideos();
   };
+
+  // ---- Browsing a channel's or playlist's recent videos ----
+  function renderVideos() {
+    var box = $('videos');
+    box.textContent = '';
+    videoList.forEach(function (v) {
+      var b = document.createElement('button');
+      b.className = 'vid' + (v.id === state.videoId ? ' on' : '');
+      var img = document.createElement('img');
+      img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg'; img.alt = ''; img.loading = 'lazy';
+      var text = document.createElement('div');
+      var t = document.createElement('div'); t.className = 't'; t.textContent = v.title;
+      var d = document.createElement('div'); d.className = 'd';
+      var when = new Date(v.published);
+      var date = isNaN(when) ? '' : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      d.textContent = v.id === state.videoId ? 'On the TV now' : date;
+      text.appendChild(t); text.appendChild(d);
+      b.appendChild(img); b.appendChild(text);
+      b.onclick = function () {
+        if (v.id === state.videoId) return;
+        if (state.videoId && !confirm('Switch the TV to "' + v.title + '"?')) return;
+        state.videoId = v.id;
+        $('video').value = 'https://youtu.be/' + v.id;
+        $('videoMsg').textContent = '';
+        saveNow(); renderVideos();
+      };
+      box.appendChild(b);
+    });
+  }
+  function loadVideos(refresh) {
+    var msg = $('listMsg');
+    videoList = []; renderVideos();
+    $('vidhead').hidden = true;
+    if (!state.listUrl) { msg.textContent = ''; return; }
+    msg.className = 'hint'; msg.textContent = 'Loading videos…';
+    fetch('/api/videos' + (refresh ? '?refresh=1' : ''))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) { msg.className = 'hint warn'; msg.textContent = d.error; return; }
+        videoList = d.videos || [];
+        msg.textContent = '';
+        $('listTitle').textContent = (d.title || 'Videos') + ': latest ' + videoList.length;
+        $('vidhead').hidden = false;
+        renderVideos();
+      })
+      .catch(function () { msg.className = 'hint warn'; msg.textContent = 'Could not load the video list.'; });
+  }
+  $('list').onchange = function () {
+    state.listUrl = $('list').value.trim();
+    // Save first so the TV knows the link before it is asked for the list.
+    clearTimeout(saveTimer);
+    setStatus('Saving…');
+    fetch('/api/state', { method: 'POST', body: encode(state),
+                          headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      .then(function (r) { if (!r.ok) throw new Error(); setStatus('Saved'); loadVideos(true); })
+      .catch(function () { setStatus('Not saved: TV unreachable', true); });
+  };
+  $('refresh').onclick = function () { loadVideos(true); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (b) {
     b.onclick = function () { command(b.dataset.cmd, b.dataset.n); b.blur(); };
   });
@@ -256,7 +336,11 @@
     state = s;
     state.rounds = state.rounds || [];
     if (state.videoId) $('video').value = 'https://youtu.be/' + state.videoId;
-    if (desktop || !state.rounds.length || !state.videoId) $('setup').open = true;
+    state.listUrl = state.listUrl || '';
+    $('list').value = state.listUrl;
+    if (desktop || !state.rounds.length) $('setup').open = true;
+    if (desktop || !state.videoId) $('vidcard').open = true;
+    loadVideos(false);
     renderAll();
     setStatus('Connected');
   }).catch(function () { setStatus('TV unreachable', true); });

@@ -10,8 +10,8 @@ android {
         applicationId 'com.rob579.chromecasttrivia'
         minSdk 23
         targetSdk 34
-        versionCode 3
-        versionName '0.3'
+        versionCode 4
+        versionName '0.4'
     }
 
     // A fixed key checked into the repo, so every build can be installed

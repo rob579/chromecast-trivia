@@ -1,5 +1,8 @@
 package com.rob579.chromecasttrivia;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -11,7 +14,14 @@ import fi.iki.elonen.NanoHTTPD;
  */
 class ControlServer extends NanoHTTPD {
 
+    private static final long VIDEO_CACHE_MS = 5 * 60 * 1000;
+
     private final MainActivity app;
+
+    // Last video list fetched, so reopening the page doesn't hit YouTube again.
+    private String cachedLink = null;
+    private String cachedVideos = null;
+    private long cachedAt = 0;
 
     ControlServer(MainActivity app, int port) {
         super(port);
@@ -43,6 +53,11 @@ class ControlServer extends NanoHTTPD {
                 return noCache(newFixedLengthResponse(Response.Status.OK,
                         "application/json; charset=utf-8", app.getState()));
             }
+            if (uri.equals("/api/videos")) {
+                boolean refresh = session.getParms().containsKey("refresh");
+                return noCache(newFixedLengthResponse(Response.Status.OK,
+                        "application/json; charset=utf-8", videos(refresh)));
+            }
             if (uri.equals("/api/cmd") && post) {
                 Map<String, String> params = session.getParms();
                 String name = params.get("c");
@@ -58,6 +73,41 @@ class ControlServer extends NanoHTTPD {
             return error(Response.Status.NOT_FOUND, "Not found");
         } catch (Exception e) {
             return error(Response.Status.INTERNAL_ERROR, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** The channel's or playlist's recent videos as JSON, or an error message. */
+    private synchronized String videos(boolean refresh) throws Exception {
+        String link = new JSONObject(app.getState()).optString("listUrl", "");
+        JSONObject out = new JSONObject();
+        if (link.isEmpty()) {
+            out.put("videos", new JSONArray());
+            return out.toString();
+        }
+        boolean fresh = link.equals(cachedLink) && cachedVideos != null
+                && System.currentTimeMillis() - cachedAt < VIDEO_CACHE_MS;
+        if (fresh && !refresh) {
+            return cachedVideos;
+        }
+        try {
+            VideoFeed.Result result = VideoFeed.load(link);
+            JSONArray list = new JSONArray();
+            for (VideoFeed.Video v : result.videos) {
+                JSONObject o = new JSONObject();
+                o.put("id", v.id);
+                o.put("title", v.title);
+                o.put("published", v.published);
+                list.put(o);
+            }
+            out.put("title", result.title);
+            out.put("videos", list);
+            cachedLink = link;
+            cachedVideos = out.toString();
+            cachedAt = System.currentTimeMillis();
+            return cachedVideos;
+        } catch (VideoFeed.FeedException e) {
+            out.put("error", e.getMessage());
+            return out.toString();
         }
     }
 
