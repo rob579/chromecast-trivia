@@ -199,6 +199,7 @@ public class MainActivity extends Activity {
             case "play":   js = "play()"; break;
             case "pause":  js = "pause()"; break;
             case "seek":   js = "seek(" + seconds + ")"; break;
+            case "fullscreen": js = "fullscreen()"; break;
             default: return;
         }
         handler.post(() -> remote(js));

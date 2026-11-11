@@ -7,15 +7,15 @@
   html, body { margin: 0; height: 100%; background: #0e1220; color: #e8ecf8;
                font-family: sans-serif; overflow: hidden; }
   /* Layout: video top-left, round name underneath, answers down the right. */
-  #video   { position: absolute; left: 2vw; top: 3vh; width: 62vw; height: 62vh; background: #000; }
+  #video   { position: absolute; left: 2vw; top: 3vh; width: 56vw; height: 56vh; background: #000; }
   #video iframe { width: 100%; height: 100%; border: 0; }
-  .cover   { position: absolute; left: 2vw; top: 3vh; width: 62vw; height: 62vh;
+  .cover   { position: absolute; left: 2vw; top: 3vh; width: 56vw; height: 56vh;
              display: none; align-items: center; justify-content: center;
              font-size: 4vh; text-align: center; padding: 0 4vw; box-sizing: border-box; }
   #novideo { background: #171d33; color: #9fb0e0; }
   #error   { background: #400; }
 
-  #bottom  { position: absolute; left: 2vw; top: 67vh; width: 62vw; height: 30vh;
+  #bottom  { position: absolute; left: 2vw; top: 61vh; width: 56vw; height: 36vh;
              display: flex; align-items: center; }
   #roundbox { flex: 1; min-width: 0; text-align: center; padding: 0 1vw; }
   #roundnum { font-size: 3vh; color: #9fb0e0; margin-bottom: 1vh; }
@@ -29,7 +29,7 @@
   #qrlabel { font-size: 2vh; color: #9fb0e0; }
   #qr      { width: 17vh; height: 17vh; border-radius: 1vh; display: none; margin: 0 auto 1vh; }
 
-  #answers { position: absolute; left: 66vw; top: 3vh; width: 32vw; height: 94vh;
+  #answers { position: absolute; left: 60vw; top: 3vh; width: 38vw; height: 94vh;
              box-sizing: border-box; padding: 2vh 1.5vw; background: #171d33;
              border-radius: 1.5vh; display: flex; flex-direction: column; }
   #answers h2 { margin: 0 0 1.5vh; font-size: 3.6vh; color: #9fb0e0; flex: none; }
@@ -37,13 +37,20 @@
   .row     { flex: 1; min-height: 0; display: flex; align-items: center;
              border-top: 1px solid #262e4d; overflow: hidden; }
   .num     { flex: none; width: 2.2em; color: #ffcd3c; font-weight: bold; }
-  .txt     { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .txt     { flex: 1; min-width: 0; max-height: 100%; overflow: hidden; line-height: 1.15;
+             overflow-wrap: anywhere; }
   .dim     { color: #6f7ba0; font-size: 3.2vh; }
 
   #status  { position: absolute; left: 3vw; top: 5vh; padding: 1vh 1.5vw;
              background: rgba(0,0,0,.75); border-radius: 1vh; font-size: 3.5vh;
              opacity: 0; transition: opacity .3s; }
   #status.show { opacity: 1; }
+
+  /* Full-screen video: the player covers everything; the rest keeps its
+     layout underneath so it is ready the moment full screen is switched off. */
+  body.full #video, body.full .cover { left: 0; top: 0; width: 100vw; height: 100vh; z-index: 5; }
+  body.full #bottom, body.full #answers { visibility: hidden; }
+  #status  { z-index: 6; }
 </style>
 </head>
 <body>
@@ -147,7 +154,26 @@
       var t = document.createElement('div'); t.className = 'txt'; t.textContent = a || '';
       row.appendChild(n); row.appendChild(t); list.appendChild(row);
     });
+    fitAnswers();
   }
+
+  // A long answer wraps onto extra lines and shrinks until it fits its row.
+  function fitAnswers() {
+    var vh = window.innerHeight / 100, min = 1.8 * vh;
+    Array.prototype.forEach.call(document.querySelectorAll('#list .row'), function (row) {
+      var t = row.querySelector('.txt');
+      t.style.fontSize = '';
+      t.style.whiteSpace = 'nowrap';
+      if (t.scrollWidth <= t.clientWidth) return;        // fits on one line at full size
+      t.style.whiteSpace = 'normal';
+      var size = parseFloat(getComputedStyle(t).fontSize), limit = row.clientHeight;
+      while (t.scrollHeight > limit && size > min) {
+        size -= 0.2 * vh;
+        t.style.fontSize = size + 'px';
+      }
+    });
+  }
+  window.addEventListener('resize', fitAnswers);
 
   function syncVideo() {
     var id = env ? (env.state.videoId || '') : '';
@@ -204,6 +230,7 @@
       player.seekTo(t, true);
       showStatus((delta < 0 ? '⏪ ' : '⏩ ') + fmt(t) + (total ? ' / ' + fmt(total) : ''));
     },
+    fullscreen: function () { document.body.classList.toggle('full'); },
     position: function () {
       if (!playerReady || !loadedId) return null;
       return { v: loadedId, t: player.getCurrentTime() || 0 };

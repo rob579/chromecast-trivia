@@ -81,6 +81,7 @@
     <button data-cmd="seek" data-n="10">+10 s</button>
     <button data-cmd="seek" data-n="60">+1 min</button>
   </div>
+  <div class="pb" style="margin-top:8px"><button data-cmd="fullscreen">Full screen video on / off</button></div>
 </div>
 
 <div class="card" id="anscard">
@@ -93,7 +94,7 @@
   </div>
   <div class="cols" id="anscols" hidden><span>Answer</span><span>Score</span></div>
   <div id="answers"></div>
-  <p class="hint" id="keys">Keyboard: Enter or ↓ next row · ↑ previous row · Tab from an answer to its score · Alt+↓ / Alt+↑ next / previous round · Esc play / pause</p>
+  <p class="hint" id="keys">Keyboard: Enter or ↓ next row · ↑ previous row · Tab from an answer to its score · Alt+↓ / Alt+↑ next / previous round · Esc play / pause · Alt+Enter full screen video</p>
 </div>
 
 <details class="card" id="vidcard">
@@ -176,6 +177,9 @@
     if (ev.altKey && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
       ev.preventDefault();
       goToRound(state.current + (ev.key === 'ArrowDown' ? 1 : -1));
+    } else if (ev.altKey && ev.key === 'Enter') {
+      ev.preventDefault();
+      command('fullscreen');
     } else if (ev.key === 'Escape' || (ev.key === ' ' && !typing && ev.target.tagName !== 'BUTTON')) {
       ev.preventDefault();
       command('toggle');
