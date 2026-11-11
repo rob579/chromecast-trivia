@@ -31,10 +31,18 @@ jobs:
           path: trivia.apk
 
       # Keeps one "latest" release whose trivia.apk is always the newest build.
+      # The release is updated in place rather than deleted and recreated,
+      # which occasionally left it stuck as an unpublished draft.
       - name: Publish latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest trivia.apk --title "Latest build" \
-            --notes "Built from ${GITHUB_SHA}" --target "${GITHUB_SHA}"
+          git tag -f latest
+          git push -f origin latest
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest trivia.apk --clobber
+            gh release edit latest --draft=false --notes "Built from ${GITHUB_SHA}"
+          else
+            gh release create latest trivia.apk --verify-tag --title "Latest build" \
+              --notes "Built from ${GITHUB_SHA}"
+          fi
