@@ -9,95 +9,173 @@
   /* Layout: video top-left, round name underneath, answers down the right. */
   #video   { position: absolute; left: 2vw; top: 3vh; width: 62vw; height: 62vh; background: #000; }
   #video iframe { width: 100%; height: 100%; border: 0; }
-  #round   { position: absolute; left: 2vw; top: 68vh; width: 62vw; height: 29vh;
-             display: flex; align-items: center; justify-content: center;
-             font-size: 7vh; font-weight: bold; color: #ffcd3c; text-align: center; }
+  .cover   { position: absolute; left: 2vw; top: 3vh; width: 62vw; height: 62vh;
+             display: none; align-items: center; justify-content: center;
+             font-size: 4vh; text-align: center; padding: 0 4vw; box-sizing: border-box; }
+  #novideo { background: #171d33; color: #9fb0e0; }
+  #error   { background: #400; }
+
+  #bottom  { position: absolute; left: 2vw; top: 67vh; width: 62vw; height: 30vh;
+             display: flex; align-items: center; }
+  #roundbox { flex: 1; min-width: 0; text-align: center; padding: 0 1vw; }
+  #roundnum { font-size: 3vh; color: #9fb0e0; margin-bottom: 1vh; }
+  #round   { font-size: 7vh; font-weight: bold; color: #ffcd3c; line-height: 1.1;
+             overflow: hidden; max-height: 16vh; }
+  #qrbox   { width: 13vw; text-align: center; font-size: 1.9vh; color: #9fb0e0; }
+  #qr      { width: 20vh; height: 20vh; border-radius: 1vh; display: none; margin: 0 auto 1vh; }
+
   #answers { position: absolute; left: 66vw; top: 3vh; width: 32vw; height: 94vh;
              box-sizing: border-box; padding: 2vh 1.5vw; background: #171d33;
-             border-radius: 1.5vh; font-size: 3.6vh; }
-  #answers h2 { margin: 0 0 2vh; font-size: 4vh; color: #9fb0e0; }
-  .dim { color: #6f7ba0; }
+             border-radius: 1.5vh; display: flex; flex-direction: column; }
+  #answers h2 { margin: 0 0 1.5vh; font-size: 3.6vh; color: #9fb0e0; flex: none; }
+  #list    { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .row     { flex: 1; min-height: 0; display: flex; align-items: center;
+             border-top: 1px solid #262e4d; overflow: hidden; }
+  .num     { flex: none; width: 2.2em; color: #ffcd3c; font-weight: bold; }
+  .txt     { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dim     { color: #6f7ba0; font-size: 3.2vh; }
+
   #status  { position: absolute; left: 3vw; top: 5vh; padding: 1vh 1.5vw;
              background: rgba(0,0,0,.75); border-radius: 1vh; font-size: 3.5vh;
              opacity: 0; transition: opacity .3s; }
   #status.show { opacity: 1; }
-  #error   { position: absolute; left: 2vw; top: 3vh; width: 62vw; height: 62vh;
-             display: none; align-items: center; justify-content: center;
-             background: #400; font-size: 4vh; text-align: center; }
 </style>
 </head>
 <body>
 <div id="video"><div id="player"></div></div>
-<div id="error"></div>
+<div id="novideo" class="cover">Scan the code with your phone to choose a video</div>
+<div id="error" class="cover"></div>
 <div id="status"></div>
-<div id="round">Round name goes here</div>
-<div id="answers"><h2>Answers</h2><div class="dim">Answers will appear here</div></div>
+
+<div id="bottom">
+  <div id="roundbox"><div id="roundnum"></div><div id="round"></div></div>
+  <div id="qrbox"><img id="qr" alt=""><div id="url"></div></div>
+</div>
+
+<div id="answers"><h2>Answers</h2><div id="list"></div></div>
 
 <script>
-  // First test build: one fixed video. Choosing the video comes later.
-  var VIDEO_ID = '7IQCIhPNFak';
-  var player = null, ready = false, statusTimer = null;
+  var env = null;            // latest data pushed in by the app
+  var player = null, apiReady = false, playerReady = false, loadedId = null;
+  var statusTimer = null;
 
+  function $(id) { return document.getElementById(id); }
   function fmt(s) {
     s = Math.max(0, Math.floor(s));
     var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
     return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
   }
   function showStatus(text) {
-    var el = document.getElementById('status');
+    var el = $('status');
     el.textContent = text;
     el.classList.add('show');
     clearTimeout(statusTimer);
     statusTimer = setTimeout(function () { el.classList.remove('show'); }, 2000);
   }
   function showError(text) {
-    var el = document.getElementById('error');
-    el.textContent = text;
-    el.style.display = 'flex';
+    $('error').textContent = text;
+    $('error').style.display = text ? 'flex' : 'none';
   }
 
+  // ---- Called by the app whenever the quiz changes ----
+  window.applyState = function (e) {
+    env = e;
+    render();
+    syncVideo();
+  };
+
+  function render() {
+    var st = env.state, rounds = st.rounds || [], r = rounds[st.current];
+
+    if (env.qr) { $('qr').src = env.qr; $('qr').style.display = 'block'; }
+    else { $('qr').style.display = 'none'; }
+    $('url').textContent = env.url ? env.url.replace('http://', '') : (env.notice || '');
+
+    $('roundnum').textContent = r ? 'Round ' + (st.current + 1) + ' of ' + rounds.length : '';
+    $('round').textContent = r ? (r.name || 'Round ' + (st.current + 1)) : 'Scan the code to set up the quiz';
+
+    var list = $('list');
+    list.textContent = '';
+    var answers = r ? (r.answers || []) : [];
+    if (!answers.length) {
+      var d = document.createElement('div');
+      d.className = 'dim';
+      d.textContent = 'Answers will appear here';
+      list.appendChild(d);
+      return;
+    }
+    // Text shrinks as the number of questions grows, so every row fits.
+    list.style.fontSize = Math.min(4.6, 62 / answers.length) + 'vh';
+    answers.forEach(function (a, i) {
+      var row = document.createElement('div'); row.className = 'row';
+      var n = document.createElement('div'); n.className = 'num'; n.textContent = (i + 1) + '.';
+      var t = document.createElement('div'); t.className = 'txt'; t.textContent = a || '';
+      row.appendChild(n); row.appendChild(t); list.appendChild(row);
+    });
+  }
+
+  function syncVideo() {
+    var id = env ? (env.state.videoId || '') : '';
+    $('novideo').style.display = id ? 'none' : 'flex';
+    if (!id || !apiReady) return;
+    if (!player) {
+      var start = 0;
+      if (env.resume && env.resume.videoId === id && env.resume.t > 5) start = Math.floor(env.resume.t);
+      loadedId = id;
+      player = new YT.Player('player', {
+        videoId: id,
+        width: '100%', height: '100%',
+        playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, rel: 0, start: start,
+                      playsinline: 1, iv_load_policy: 3, origin: location.origin },
+        events: {
+          onReady: function () { playerReady = true; player.playVideo(); syncVideo(); },
+          onError: function (e) {
+            var why = { 2: 'that link is not a valid video', 5: 'player error', 100: 'video not found',
+                        101: 'the uploader does not allow this video to play here',
+                        150: 'the uploader does not allow this video to play here',
+                        153: 'player configuration (referrer) error' }[e.data] || 'unknown';
+            showError('YouTube error ' + e.data + ': ' + why);
+          }
+        }
+      });
+    } else if (playerReady && id !== loadedId) {
+      loadedId = id;
+      showError('');
+      player.loadVideoById(id);
+    }
+  }
+
+  // ---- Playback commands from the remote and the phone ----
   window.remote = {
     toggle: function () {
-      if (!ready) return;
+      if (!playerReady) return;
       if (player.getPlayerState() === YT.PlayerState.PLAYING) this.pause(); else this.play();
     },
     play: function () {
-      if (!ready) return;
+      if (!playerReady) return;
       player.playVideo();
       showStatus('▶ ' + fmt(player.getCurrentTime()));
     },
     pause: function () {
-      if (!ready) return;
+      if (!playerReady) return;
       player.pauseVideo();
       showStatus('⏸ ' + fmt(player.getCurrentTime()));
     },
     seek: function (delta) {
-      if (!ready) return;
+      if (!playerReady) return;
       var total = player.getDuration() || 0;
       var t = Math.max(0, player.getCurrentTime() + delta);
       if (total) t = Math.min(t, total - 1);
       player.seekTo(t, true);
       showStatus((delta < 0 ? '⏪ ' : '⏩ ') + fmt(t) + (total ? ' / ' + fmt(total) : ''));
+    },
+    position: function () {
+      if (!playerReady || !loadedId) return null;
+      return { v: loadedId, t: player.getCurrentTime() || 0 };
     }
   };
 
-  function onYouTubeIframeAPIReady() {
-    player = new YT.Player('player', {
-      videoId: VIDEO_ID,
-      width: '100%', height: '100%',
-      playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, rel: 0,
-                    playsinline: 1, iv_load_policy: 3, origin: location.origin },
-      events: {
-        onReady: function () { ready = true; player.playVideo(); },
-        onError: function (e) {
-          var why = { 2: 'bad video ID', 5: 'player error', 100: 'video not found',
-                      101: 'embedding blocked by uploader', 150: 'embedding blocked by uploader',
-                      153: 'player configuration (referrer) error' }[e.data] || 'unknown';
-          showError('YouTube error ' + e.data + ': ' + why);
-        }
-      }
-    });
-  }
+  function onYouTubeIframeAPIReady() { apiReady = true; syncVideo(); }
 
   var tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';

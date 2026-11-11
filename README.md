@@ -3,10 +3,18 @@
 A personal Android TV app for Chromecast with Google TV: plays a YouTube
 trivia quiz video with the current round name and the team's answers on screen.
 
-## Status
+## How it works
 
-First test build: video player and remote controls only, with one fixed video.
-The round and answers panels are placeholders.
+The app runs a small web page on the Chromecast itself. Scan the QR code on
+the TV with a phone on the same Wi-Fi to:
+
+- paste the YouTube link for the quiz video
+- set up rounds (name and number of questions)
+- choose the current round
+- type answers, which appear on the TV as you type
+- play, pause and skip
+
+The quiz and the video position are remembered if the app is closed.
 
 ## Remote
 
@@ -27,12 +35,14 @@ repo page).
 
 1. On the Chromecast: Settings > System > About, click "Android TV OS build"
    seven times to enable developer options.
-2. Settings > System > Developer options: turn on USB debugging.
+2. Settings > System > Developer options: turn on Wireless debugging.
 3. Find the Chromecast's IP address under Settings > Network & Internet.
 4. From a computer with adb installed:
 
    ```
-   adb connect <chromecast-ip>
+   adb pair <chromecast-ip>:<pairing port>     (first time only; code from
+                                               Wireless debugging > Pair device)
+   adb connect <chromecast-ip>:<port>          (port from the Wireless debugging screen)
    adb install -r trivia.apk
    ```
 

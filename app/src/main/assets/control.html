@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trivia control</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0e1220; color: #e8ecf8;
+         font: 16px/1.4 -apple-system, system-ui, sans-serif; padding: 12px 12px 48px; }
+  h1 { font-size: 20px; margin: 0; color: #ffcd3c; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  #save { font-size: 13px; color: #9fb0e0; }
+  #save.bad { color: #ff7b7b; }
+  button { font: inherit; color: inherit; background: #262e4d; border: 0; border-radius: 10px;
+           padding: 12px 14px; min-height: 46px; }
+  button:active { background: #36406a; }
+  input { font: inherit; color: inherit; background: #171d33; border: 1px solid #36406a;
+          border-radius: 10px; padding: 11px 12px; min-height: 46px; width: 100%; }
+  input:focus { outline: 2px solid #ffcd3c; border-color: transparent; }
+  .card { background: #171d33; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+  .card input { background: #0e1220; }
+  .pb { display: flex; gap: 8px; }
+  .pb button { flex: 1; }
+  .label { font-size: 13px; color: #9fb0e0; margin: 0 0 6px; }
+  #chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  #chips button { flex: none; white-space: nowrap; }
+  #chips button.on { background: #ffcd3c; color: #1a1a1a; font-weight: 600; }
+  .ans { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .ans span { width: 26px; text-align: right; color: #ffcd3c; font-weight: 600; flex: none; }
+  .rnd { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .rnd .q { width: 70px; flex: none; text-align: center; }
+  .rnd button { flex: none; padding: 12px; }
+  summary { font-weight: 600; padding: 4px 0; cursor: pointer; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  .row button { flex: 1; }
+  .hint { font-size: 13px; color: #9fb0e0; margin-top: 6px; }
+  .warn { color: #ff7b7b; }
+  .empty { color: #9fb0e0; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header><h1>Trivia control</h1><span id="save">Loading…</span></header>
+
+<div class="card">
+  <div class="pb">
+    <button data-cmd="seek" data-n="-60">−1 min</button>
+    <button data-cmd="seek" data-n="-10">−10 s</button>
+    <button data-cmd="toggle">Play / Pause</button>
+    <button data-cmd="seek" data-n="10">+10 s</button>
+    <button data-cmd="seek" data-n="60">+1 min</button>
+  </div>
+</div>
+
+<div class="card">
+  <p class="label">Current round (shown on the TV)</p>
+  <div id="chips"></div>
+  <div id="answers"></div>
+</div>
+
+<details class="card" id="setup">
+  <summary>Quiz setup</summary>
+  <p class="label" style="margin-top:12px">YouTube link</p>
+  <input id="video" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="Paste the quiz video link">
+  <div id="videoMsg" class="hint"></div>
+
+  <p class="label" style="margin-top:16px">Rounds: name and number of questions</p>
+  <div id="rounds"></div>
+  <div class="row">
+    <button id="add">Add round</button>
+    <button id="clear">Clear all answers</button>
+  </div>
+</details>
+
+<script>
+  var state = { videoId: '', current: 0, rounds: [] };
+  var saveTimer = null;
+  function $(id) { return document.getElementById(id); }
+
+  function setStatus(text, bad) { $('save').textContent = text; $('save').className = bad ? 'bad' : ''; }
+
+  // Non-ASCII characters are escaped so accents and emoji survive the trip.
+  function encode(obj) {
+    return JSON.stringify(obj).replace(/[\u0080-￿]/g, function (c) {
+      return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4);
+    });
+  }
+  function saveNow() {
+    clearTimeout(saveTimer);
+    setStatus('Saving…');
+    fetch('/api/state', { method: 'POST', body: encode(state),
+                          headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      .then(function (r) { if (!r.ok) throw new Error(); setStatus('Saved'); })
+      .catch(function () { setStatus('Not saved: TV unreachable', true); });
+  }
+  function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
+
+  function videoIdFrom(text) {
+    text = (text || '').trim();
+    if (/^[\w-]{11}$/.test(text)) return text;
+    var m = text.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/live\/|\/shorts\/)([\w-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  function renderChips() {
+    var box = $('chips');
+    box.textContent = '';
+    if (!state.rounds.length) {
+      var e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'No rounds yet. Add them under Quiz setup below.';
+      box.appendChild(e);
+    }
+    state.rounds.forEach(function (r, i) {
+      var b = document.createElement('button');
+      b.textContent = r.name || 'Round ' + (i + 1);
+      if (i === state.current) b.className = 'on';
+      b.onclick = function () { state.current = i; renderChips(); renderAnswers(); saveNow(); };
+      box.appendChild(b);
+    });
+    var on = box.querySelector('.on');
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  function renderAnswers() {
+    var box = $('answers');
+    box.textContent = '';
+    var r = state.rounds[state.current];
+    if (!r) return;
+    r.answers.forEach(function (a, i) {
+      var row = document.createElement('div'); row.className = 'ans';
+      var n = document.createElement('span'); n.textContent = i + 1;
+      var inp = document.createElement('input');
+      inp.value = a; inp.autocomplete = 'off';
+      inp.setAttribute('enterkeyhint', i === r.answers.length - 1 ? 'done' : 'next');
+      inp.oninput = function () { r.answers[i] = inp.value; save(); };
+      inp.onkeydown = function (ev) {
+        if (ev.key !== 'Enter') return;
+        var all = box.querySelectorAll('input');
+        if (all[i + 1]) all[i + 1].focus(); else inp.blur();
+      };
+      row.appendChild(n); row.appendChild(inp); box.appendChild(row);
+    });
+  }
+
+  function renderRounds() {
+    var box = $('rounds');
+    box.textContent = '';
+    state.rounds.forEach(function (r, i) {
+      var row = document.createElement('div'); row.className = 'rnd';
+      var name = document.createElement('input');
+      name.value = r.name; name.placeholder = 'Round ' + (i + 1); name.autocomplete = 'off';
+      name.oninput = function () { r.name = name.value; renderChips(); save(); };
+      var q = document.createElement('input');
+      q.className = 'q'; q.type = 'number'; q.min = 1; q.max = 30; q.value = r.answers.length;
+      q.setAttribute('inputmode', 'numeric');
+      q.onchange = function () {
+        var n = Math.max(1, Math.min(30, parseInt(q.value, 10) || r.answers.length));
+        q.value = n;
+        while (r.answers.length < n) r.answers.push('');
+        r.answers.length = n;
+        renderAnswers(); save();
+      };
+      var del = document.createElement('button');
+      del.textContent = '✕'; del.setAttribute('aria-label', 'Remove round');
+      del.onclick = function () {
+        if (r.answers.some(function (a) { return a; }) &&
+            !confirm('Remove this round and its answers?')) return;
+        state.rounds.splice(i, 1);
+        if (state.current >= state.rounds.length) state.current = Math.max(0, state.rounds.length - 1);
+        renderAll(); saveNow();
+      };
+      row.appendChild(name); row.appendChild(q); row.appendChild(del); box.appendChild(row);
+    });
+  }
+
+  function renderAll() { renderChips(); renderAnswers(); renderRounds(); }
+
+  $('add').onclick = function () {
+    var last = state.rounds[state.rounds.length - 1];
+    var n = last ? last.answers.length : 10;
+    var answers = []; for (var i = 0; i < n; i++) answers.push('');
+    state.rounds.push({ name: '', answers: answers });
+    renderAll(); saveNow();
+    var names = $('rounds').querySelectorAll('.rnd input:not(.q)');
+    names[names.length - 1].focus();
+  };
+  $('clear').onclick = function () {
+    if (!confirm('Clear every answer in every round? Round names are kept.')) return;
+    state.rounds.forEach(function (r) { r.answers = r.answers.map(function () { return ''; }); });
+    state.current = 0;
+    renderAll(); saveNow();
+  };
+  $('video').onchange = function () {
+    var id = videoIdFrom($('video').value), msg = $('videoMsg');
+    if (!$('video').value.trim()) { state.videoId = ''; msg.textContent = ''; saveNow(); return; }
+    if (!id) { msg.className = 'hint warn'; msg.textContent = "That doesn't look like a YouTube link."; return; }
+    state.videoId = id;
+    msg.className = 'hint'; msg.textContent = 'Video set. It will start on the TV.';
+    saveNow();
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (b) {
+    b.onclick = function () {
+      fetch('/api/cmd?c=' + b.dataset.cmd + '&n=' + (b.dataset.n || 0), { method: 'POST' })
+        .catch(function () { setStatus('TV unreachable', true); });
+    };
+  });
+
+  fetch('/api/state').then(function (r) { return r.json(); }).then(function (s) {
+    state = s;
+    state.rounds = state.rounds || [];
+    if (state.videoId) $('video').value = 'https://youtu.be/' + state.videoId;
+    if (!state.rounds.length || !state.videoId) $('setup').open = true;
+    renderAll();
+    setStatus('Connected');
+  }).catch(function () { setStatus('TV unreachable', true); });
+</script>
+</body>
+</html>
