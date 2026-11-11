@@ -34,8 +34,13 @@
              border-radius: 1.5vh; display: flex; flex-direction: column; }
   #answers h2 { margin: 0 0 1.5vh; font-size: 3.6vh; color: #9fb0e0; flex: none; }
   #list    { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .row     { flex: 1; min-height: 0; display: flex; align-items: center;
+  .row     { flex: 1; min-height: 0; display: flex; align-items: center; position: relative;
              border-top: 1px solid #262e4d; overflow: hidden; }
+  /* The score sits behind the answer as a faint watermark on the right. */
+  .mark    { position: absolute; right: 0.15em; top: 50%; transform: translateY(-50%);
+             font-size: 1.9em; line-height: 1; font-weight: bold; color: rgba(255, 205, 60, .2);
+             pointer-events: none; }
+  .num, .txt { position: relative; z-index: 1; }
   .num     { flex: none; width: 2.2em; color: #ffcd3c; font-weight: bold; }
   .txt     { flex: 1; min-width: 0; max-height: 100%; overflow: hidden; line-height: 1.15;
              overflow-wrap: anywhere; }
@@ -186,6 +191,11 @@
       row.style.flexGrow = text ? 1 + 0.7 * (lineCount - 1) : 0.6;
       var n = document.createElement('div'); n.className = 'num'; n.textContent = (i + 1) + '.';
       var t = document.createElement('div'); t.className = 'txt'; t.textContent = (a || '').replace(/\s+$/, '');
+      var score = parseFloat((r.scores || [])[i]);
+      if (!isNaN(score)) {
+        var m = document.createElement('div'); m.className = 'mark'; m.textContent = num(score);
+        row.appendChild(m);
+      }
       row.appendChild(n); row.appendChild(t); list.appendChild(row);
     });
     fitAnswers();
