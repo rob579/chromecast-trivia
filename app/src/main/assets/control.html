@@ -36,6 +36,9 @@
   .cols span:first-child { flex: 1; text-align: left; width: auto; }
   .ans .sc { width: 64px; flex: none; text-align: center; padding: 11px 4px; }
   .bad { outline: 2px solid #ff7b7b; }
+  /* "New line" button: only on touch screens, which have no Shift+Enter. */
+  .ans .nl { display: none; flex: none; width: 44px; padding: 0; font-size: 18px; }
+  @media (pointer: coarse) { .ans .nl { display: block; } }
   #roundbar { display: none; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   #roundbar label { color: #9fb0e0; font-size: 14px; }
   #points { width: 72px; text-align: center; padding: 11px 4px; }
@@ -283,7 +286,20 @@
         renderTotals(); save();
       };
       nav(sc, '.sc', i);
-      row.appendChild(n); row.appendChild(inp); row.appendChild(sc); box.appendChild(row);
+      var nl = document.createElement('button');
+      nl.className = 'nl'; nl.textContent = '↵'; nl.setAttribute('aria-label', 'New line in answer ' + (i + 1));
+      // Keep the answer box focused so the phone keyboard stays open.
+      nl.onpointerdown = function (ev) { ev.preventDefault(); };
+      nl.onclick = function () {
+        var focused = document.activeElement === inp;
+        var at = focused ? inp.selectionStart : inp.value.length;
+        var to = focused ? inp.selectionEnd : inp.value.length;
+        inp.value = inp.value.slice(0, at) + '\n' + inp.value.slice(to);
+        inp.focus();
+        inp.setSelectionRange(at + 1, at + 1);
+        inp.oninput();
+      };
+      row.appendChild(n); row.appendChild(inp); row.appendChild(nl); row.appendChild(sc); box.appendChild(row);
       grow(inp);
     });
   }
