@@ -15,11 +15,12 @@
   button { font: inherit; color: inherit; background: #262e4d; border: 0; border-radius: 10px;
            padding: 12px 14px; min-height: 46px; }
   button:active { background: #36406a; }
-  input { font: inherit; color: inherit; background: #171d33; border: 1px solid #36406a;
+  input, textarea { font: inherit; color: inherit; background: #171d33; border: 1px solid #36406a;
           border-radius: 10px; padding: 11px 12px; min-height: 46px; width: 100%; }
-  input:focus { outline: 2px solid #ffcd3c; border-color: transparent; }
+  input:focus, textarea:focus { outline: 2px solid #ffcd3c; border-color: transparent; }
+  textarea { display: block; resize: none; overflow: hidden; line-height: 1.4; }
   .card { background: #171d33; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
-  .card input { background: #0e1220; }
+  .card input, .card textarea { background: #0e1220; }
   .pb { display: flex; gap: 8px; }
   .pb button { flex: 1; }
   .label { font-size: 13px; color: #9fb0e0; margin: 0 0 6px; }
@@ -97,7 +98,7 @@
   </div>
   <div class="cols" id="anscols" hidden><span>Answer</span><span>Score</span></div>
   <div id="answers"></div>
-  <p class="hint" id="keys">Keyboard: Enter or ↓ next row · ↑ previous row · Tab from an answer to its score · Alt+↓ / Alt+↑ next / previous round · Esc play / pause · Alt+Enter full screen video</p>
+  <p class="hint" id="keys">Keyboard: Enter or ↓ next row · ↑ previous row · Shift+Enter new line in an answer · Tab from an answer to its score · Alt+↓ / Alt+↑ next / previous round · Esc play / pause · Alt+Enter full screen video</p>
 </div>
 
 <details class="card" id="vidcard">
@@ -240,26 +241,36 @@
     $('points').classList.remove('bad');
 
     // Enter / arrows move up and down within a column (answers or scores).
+    // Shift+Enter adds a line inside an answer; inside a multi-line answer the
+    // arrows move between its lines first and only leave from the top or bottom line.
     function nav(inp, selector, i) {
       inp.onkeydown = function (ev) {
         if (ev.altKey) return;
+        if (ev.key === 'Enter' && ev.shiftKey) return;
         var all = box.querySelectorAll(selector);
-        if (ev.key === 'Enter' || ev.key === 'ArrowDown') {
+        var text = inp.value, start = inp.selectionStart || 0, end = inp.selectionEnd || 0;
+        var onFirstLine = text.lastIndexOf('\n', start - 1) === -1;
+        var onLastLine = text.indexOf('\n', end) === -1;
+        if (ev.key === 'Enter' || (ev.key === 'ArrowDown' && onLastLine)) {
           ev.preventDefault();
           if (all[i + 1]) all[i + 1].focus(); else if (ev.key === 'Enter') inp.blur();
-        } else if (ev.key === 'ArrowUp') {
+        } else if (ev.key === 'ArrowUp' && onFirstLine) {
           ev.preventDefault();
           if (all[i - 1]) all[i - 1].focus();
         }
       };
     }
+    function grow(area) {            // the box gets taller as lines are added
+      area.style.height = 'auto';
+      if (area.scrollHeight) area.style.height = (area.scrollHeight + 2) + 'px';
+    }
     r.answers.forEach(function (a, i) {
       var row = document.createElement('div'); row.className = 'ans';
       var n = document.createElement('span'); n.textContent = i + 1;
-      var inp = document.createElement('input');
-      inp.className = 'an'; inp.value = a; inp.autocomplete = 'off';
+      var inp = document.createElement('textarea');
+      inp.className = 'an'; inp.rows = 1; inp.value = a; inp.autocomplete = 'off';
       inp.setAttribute('enterkeyhint', i === r.answers.length - 1 ? 'done' : 'next');
-      inp.oninput = function () { r.answers[i] = inp.value; save(); };
+      inp.oninput = function () { r.answers[i] = inp.value; grow(inp); save(); };
       nav(inp, '.an', i);
       var sc = document.createElement('input');
       sc.className = 'sc'; sc.value = r.scores[i]; sc.autocomplete = 'off';
@@ -273,6 +284,7 @@
       };
       nav(sc, '.sc', i);
       row.appendChild(n); row.appendChild(inp); row.appendChild(sc); box.appendChild(row);
+      grow(inp);
     });
   }
 

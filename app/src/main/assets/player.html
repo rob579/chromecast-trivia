@@ -181,8 +181,11 @@
     list.style.fontSize = Math.min(4.6, 62 / answers.length) + 'vh';
     answers.forEach(function (a, i) {
       var row = document.createElement('div'); row.className = 'row';
+      // Answers with several lines get a taller row; empty ones give space up.
+      var text = (a || '').replace(/\s+$/, ''), lineCount = Math.min(text.split('\n').length, 5);
+      row.style.flexGrow = text ? 1 + 0.7 * (lineCount - 1) : 0.6;
       var n = document.createElement('div'); n.className = 'num'; n.textContent = (i + 1) + '.';
-      var t = document.createElement('div'); t.className = 'txt'; t.textContent = a || '';
+      var t = document.createElement('div'); t.className = 'txt'; t.textContent = (a || '').replace(/\s+$/, '');
       row.appendChild(n); row.appendChild(t); list.appendChild(row);
     });
     fitAnswers();
@@ -195,8 +198,9 @@
       var t = row.querySelector('.txt');
       t.style.fontSize = '';
       t.style.whiteSpace = 'nowrap';
-      if (t.scrollWidth <= t.clientWidth) return;        // fits on one line at full size
-      t.style.whiteSpace = 'normal';
+      var lines = t.textContent.indexOf('\n') >= 0;       // typed with Shift+Enter
+      if (!lines && t.scrollWidth <= t.clientWidth) return;   // fits on one line at full size
+      t.style.whiteSpace = 'pre-line';
       var size = parseFloat(getComputedStyle(t).fontSize), limit = row.clientHeight;
       while (t.scrollHeight > limit && size > min) {
         size -= 0.2 * vh;
