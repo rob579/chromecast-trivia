@@ -75,6 +75,7 @@
   var env = null;            // latest data pushed in by the app
   var player = null, apiReady = false, playerReady = false, loadedId = null;
   var statusTimer = null;
+  var captionsApplied = null;   // which video + setting the subtitles were last set for
 
   function $(id) { return document.getElementById(id); }
   function fmt(s) {
@@ -99,7 +100,37 @@
     env = e;
     render();
     syncVideo();
+    syncCaptions();
   };
+
+  // ---- Subtitles ----
+  // YouTube only accepts subtitle changes once a video is actually playing,
+  // so this is retried on every play until it has been applied.
+  function syncCaptions() {
+    if (!playerReady || !env) return;
+    var on = !!env.state.captions, key = loadedId + '|' + on;
+    if (key === captionsApplied) return;
+    if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;
+    captionsApplied = key;
+    try {
+      if (on) {
+        player.loadModule('captions');
+        setTimeout(function () {
+          try {
+            var tracks = player.getOption('captions', 'tracklist') || [], pick = null;
+            tracks.forEach(function (t) {
+              if (!pick && /^en/i.test(t.languageCode || '')) pick = t;
+            });
+            pick = pick || tracks[0] || { languageCode: 'en' };
+            player.setOption('captions', 'track', { languageCode: pick.languageCode });
+          } catch (e) {}
+        }, 600);
+      } else {
+        player.setOption('captions', 'track', {});
+        player.unloadModule('captions');
+      }
+    } catch (e) {}
+  }
 
   // ---- Scores ----
   function num(x) { return String(Math.round(x * 100) / 100); }
@@ -190,6 +221,7 @@
                       playsinline: 1, iv_load_policy: 3, origin: location.origin },
         events: {
           onReady: function () { playerReady = true; player.playVideo(); syncVideo(); },
+          onStateChange: function () { syncCaptions(); },
           onError: function (e) {
             var why = { 2: 'that link is not a valid video', 5: 'player error', 100: 'video not found',
                         101: 'the uploader does not allow this video to play here',

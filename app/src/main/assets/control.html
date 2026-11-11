@@ -25,7 +25,7 @@
   .label { font-size: 13px; color: #9fb0e0; margin: 0 0 6px; }
   #chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
   #chips button { flex: none; white-space: nowrap; }
-  #chips button.on { background: #ffcd3c; color: #1a1a1a; font-weight: 600; }
+  #chips button.on, #captions.on { background: #ffcd3c; color: #1a1a1a; font-weight: 600; }
   .ans { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .ans span { width: 26px; text-align: right; color: #ffcd3c; font-weight: 600; flex: none; }
   .rnd { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
@@ -81,7 +81,10 @@
     <button data-cmd="seek" data-n="10">+10 s</button>
     <button data-cmd="seek" data-n="60">+1 min</button>
   </div>
-  <div class="pb" style="margin-top:8px"><button data-cmd="fullscreen">Full screen video on / off</button></div>
+  <div class="pb" style="margin-top:8px">
+    <button data-cmd="fullscreen">Full screen video on / off</button>
+    <button id="captions">Subtitles: off</button>
+  </div>
 </div>
 
 <div class="card" id="anscard">
@@ -328,6 +331,15 @@
 
   function renderAll() { renderChips(); renderAnswers(); renderRounds(); }
 
+  function renderCaptions() {
+    $('captions').textContent = 'Subtitles: ' + (state.captions ? 'on' : 'off');
+    $('captions').className = state.captions ? 'on' : '';
+  }
+  $('captions').onclick = function () {
+    state.captions = !state.captions;
+    renderCaptions(); saveNow(); $('captions').blur();
+  };
+
   $('add').onclick = function () {
     var last = state.rounds[state.rounds.length - 1];
     var n = last ? last.answers.length : 10;
@@ -428,6 +440,7 @@
     });
     if (state.videoId) $('video').value = 'https://youtu.be/' + state.videoId;
     state.listUrl = state.listUrl || '';
+    renderCaptions();
     $('list').value = state.listUrl;
     if (desktop || !state.rounds.length) $('setup').open = true;
     if (desktop || !state.videoId) $('vidcard').open = true;

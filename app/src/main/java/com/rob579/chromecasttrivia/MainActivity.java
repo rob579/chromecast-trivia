@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
         JSONObject out = new JSONObject();
         out.put("videoId", in.optString("videoId", "").trim());
         out.put("listUrl", in.optString("listUrl", "").trim());
+        out.put("captions", in.optBoolean("captions", false));
         JSONArray rounds = in.optJSONArray("rounds");
         JSONArray cleanRounds = new JSONArray();
         if (rounds != null) {
