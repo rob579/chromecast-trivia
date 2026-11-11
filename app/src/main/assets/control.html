@@ -130,28 +130,118 @@
 </div>
 
 <script>
-  var state = { videoId: '', listUrl: '', current: 0, rounds: [] };
+  var state = { videoId: '', listUrl: '', captions: false, current: 0, rounds: [] };
+  var rev = 0;                 // revision of the quiz this page last received
   var videoList = [];
-  var saveTimer = null;
+  var desktop = window.matchMedia && matchMedia('(min-width: 900px)').matches;
   function $(id) { return document.getElementById(id); }
 
   function setStatus(text, bad) { $('save').textContent = text; $('save').className = bad ? 'bad' : ''; }
 
+  // ---------------------------------------------------------------------
+  // Saving. Each edit is sent as one small change ("op") to one box, never
+  // the whole quiz, so several people can type at the same time. Changes
+  // made on other devices arrive by checking the TV every second or so.
+  // ---------------------------------------------------------------------
+  var queue = [];              // changes not yet sent: { key, op }
+  var sending = false, flushTimer = null, afterSave = null;
+
   // Non-ASCII characters are escaped so accents and emoji survive the trip.
   function encode(obj) {
-    return JSON.stringify(obj).replace(/[\u0080-￿]/g, function (c) {
+    return JSON.stringify(obj).replace(/[^\x00-\x7f]/g, function (c) {
       return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4);
     });
   }
-  function saveNow() {
-    clearTimeout(saveTimer);
+  // key: repeated edits to the same box replace each other while waiting.
+  // now: send straight away (button presses) instead of after a short pause (typing).
+  function send(op, key, now) {
+    var found = false;
+    if (key) queue.forEach(function (q) { if (q.key === key) { q.op = op; found = true; } });
+    if (!found) queue.push({ key: key, op: op });
     setStatus('Saving…');
-    fetch('/api/state', { method: 'POST', body: encode(state),
-                          headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      .then(function (r) { if (!r.ok) throw new Error(); setStatus('Saved'); })
-      .catch(function () { setStatus('Not saved: TV unreachable', true); });
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(flush, now ? 0 : 250);
   }
-  function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
+  function flush() {
+    if (sending || !queue.length) return;
+    var batch = queue; queue = []; sending = true;
+    fetch('/api/ops', { method: 'POST', body: encode(batch.map(function (q) { return q.op; })),
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (s) {
+        sending = false;
+        if (queue.length) { flush(); return; }      // more typed meanwhile: send that first
+        setStatus('Saved');
+        adopt(s);
+        if (afterSave) { var f = afterSave; afterSave = null; f(); }
+      })
+      .catch(function () {
+        sending = false;
+        queue = batch.concat(queue);                // keep the changes and try again
+        setStatus('Not saved yet: TV unreachable, retrying', true);
+        clearTimeout(flushTimer);
+        flushTimer = setTimeout(flush, 2000);
+      });
+  }
+  function poll() {
+    if (document.hidden || sending || queue.length) return;
+    fetch('/api/state?rev=' + rev)
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (sending || queue.length) return;        // our own edit is newer than this reply
+        if ($('save').className === 'bad') setStatus('Connected');
+        if (s.rounds) adopt(s);
+      })
+      .catch(function () { setStatus('TV unreachable', true); });
+  }
+
+  // Which boxes exist: if this is unchanged, values can be updated in place.
+  function shape(s) {
+    return s.current + '|' + s.rounds.map(function (r) { return r.id + ':' + r.answers.length; }).join(',');
+  }
+  function setIfIdle(el, value) {     // never touch the box someone is typing in
+    if (!el || el === document.activeElement || el.value === value) return false;
+    el.value = value;
+    el.classList.remove('bad');
+    return true;
+  }
+  /** Takes the quiz as the TV now has it and shows it, disturbing typing as little as possible. */
+  function adopt(s) {
+    var before = shape(state), listBefore = state.listUrl, videoBefore = state.videoId;
+    state = s; rev = s.rev;
+    renderCaptions();
+    setIfIdle($('video'), state.videoId ? 'https://youtu.be/' + state.videoId : '');
+    if (setIfIdle($('list'), state.listUrl) || (state.listUrl !== listBefore && !afterSave)) loadVideos(false);
+    else if (state.videoId !== videoBefore) renderVideos();
+
+    if (shape(state) !== before) {
+      // Rounds were added, removed, resized or switched: rebuild, then put the cursor back.
+      var el = document.activeElement, k = el && el.dataset ? el.dataset.k : null;
+      var a = k ? el.selectionStart : 0, b = k ? el.selectionEnd : 0;
+      renderAll();
+      var again = k ? document.querySelector('[data-k="' + k + '"]') : null;
+      if (again) { again.focus(); try { again.setSelectionRange(a, b); } catch (e) {} }
+      return;
+    }
+    renderChips();
+    var r = state.rounds[state.current];
+    if (r) {
+      Array.prototype.forEach.call($('answers').querySelectorAll('.an'), function (el, i) {
+        if (setIfIdle(el, r.answers[i])) grow(el);
+      });
+      Array.prototype.forEach.call($('answers').querySelectorAll('.sc'), function (el, i) {
+        setIfIdle(el, r.scores[i]);
+      });
+      setIfIdle($('points'), num(available(r)));
+    }
+    Array.prototype.forEach.call($('rounds').querySelectorAll('.rnd'), function (row, i) {
+      var x = state.rounds[i], f = row.querySelectorAll('input');
+      setIfIdle(f[0], x.name); setIfIdle(f[1], String(x.answers.length)); setIfIdle(f[2], num(available(x)));
+    });
+    renderTotals();
+  }
+
+  function uid() { return Math.random().toString(36).slice(2, 10); }
 
   function videoIdFrom(text) {
     text = (text || '').trim();
@@ -160,8 +250,6 @@
     return m ? m[1] : null;
   }
 
-  var desktop = window.matchMedia && matchMedia('(min-width: 900px)').matches;
-
   function command(name, n) {
     fetch('/api/cmd?c=' + name + '&n=' + (n || 0), { method: 'POST' })
       .catch(function () { setStatus('TV unreachable', true); });
@@ -169,7 +257,10 @@
   function goToRound(i) {
     if (i < 0 || i >= state.rounds.length) return;
     state.current = i;
-    renderChips(); renderAnswers(); saveNow();
+    renderChips(); renderAnswers();
+    send({ op: 'current', id: state.rounds[i].id }, 'current', true);
+    var on = $('chips').querySelector('.on');
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
     // On a laptop, land in the first empty answer ready to type.
     // Not on a phone, where it would pop the keyboard up.
     if (desktop) {
@@ -209,8 +300,6 @@
       b.onclick = function () { goToRound(i); };
       box.appendChild(b);
     });
-    var on = box.querySelector('.on');
-    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
 
   // ---- Scores ----
@@ -230,6 +319,11 @@
     var mine = tally(r);
     $('totals').textContent = (mine.marked ? 'Round ' + num(mine.sum) + ' / ' + num(available(r)) + ' · ' : '') +
                               'Quiz ' + num(got) + ' / ' + num(total);
+  }
+
+  function grow(area) {            // the box gets taller as lines are added
+    area.style.height = 'auto';
+    if (area.scrollHeight) area.style.height = (area.scrollHeight + 2) + 'px';
   }
 
   function renderAnswers() {
@@ -263,27 +357,29 @@
         }
       };
     }
-    function grow(area) {            // the box gets taller as lines are added
-      area.style.height = 'auto';
-      if (area.scrollHeight) area.style.height = (area.scrollHeight + 2) + 'px';
-    }
     r.answers.forEach(function (a, i) {
       var row = document.createElement('div'); row.className = 'ans';
       var n = document.createElement('span'); n.textContent = i + 1;
       var inp = document.createElement('textarea');
       inp.className = 'an'; inp.rows = 1; inp.value = a; inp.autocomplete = 'off';
+      inp.dataset.k = 'an|' + r.id + '|' + i;
       inp.setAttribute('enterkeyhint', i === r.answers.length - 1 ? 'done' : 'next');
-      inp.oninput = function () { r.answers[i] = inp.value; grow(inp); save(); };
+      inp.oninput = function () {
+        r.answers[i] = inp.value; grow(inp);
+        send({ op: 'answer', id: r.id, i: i, value: inp.value }, 'answer|' + r.id + '|' + i);
+      };
       nav(inp, '.an', i);
       var sc = document.createElement('input');
       sc.className = 'sc'; sc.value = r.scores[i]; sc.autocomplete = 'off';
+      sc.dataset.k = 'sc|' + r.id + '|' + i;
       sc.setAttribute('inputmode', 'decimal'); sc.setAttribute('aria-label', 'Score for answer ' + (i + 1));
       sc.oninput = function () {
         var text = sc.value.trim(), ok = validNumber(text);
         sc.classList.toggle('bad', !ok);
         if (!ok) return;                 // keep the last good value until it's a number
         r.scores[i] = text;
-        renderTotals(); save();
+        renderTotals();
+        send({ op: 'score', id: r.id, i: i, value: text }, 'score|' + r.id + '|' + i);
       };
       nav(sc, '.sc', i);
       var nl = document.createElement('button');
@@ -310,12 +406,16 @@
     field.classList.toggle('bad', !ok);
     if (!ok) return false;
     r.points = parseFloat(text);
-    renderTotals(); save();
+    renderTotals();
+    send({ op: 'points', id: r.id, value: r.points }, 'points|' + r.id);
     return true;
   }
+  $('points').dataset.k = 'points';
   $('points').oninput = function () {
     var r = state.rounds[state.current];
-    if (r && setPoints(r, $('points').value, $('points'))) renderRounds();
+    if (!r || !setPoints(r, $('points').value, $('points'))) return;
+    var row = $('rounds').querySelectorAll('.rnd')[state.current];
+    if (row) row.querySelectorAll('input')[2].value = $('points').value.trim();
   };
 
   function renderRounds() {
@@ -325,7 +425,11 @@
       var row = document.createElement('div'); row.className = 'rnd';
       var name = document.createElement('input');
       name.value = r.name; name.placeholder = 'Round ' + (i + 1); name.autocomplete = 'off';
-      name.oninput = function () { r.name = name.value; renderChips(); save(); };
+      name.dataset.k = 'name|' + r.id;
+      name.oninput = function () {
+        r.name = name.value; renderChips();
+        send({ op: 'name', id: r.id, value: name.value }, 'name|' + r.id);
+      };
       var q = document.createElement('input');
       q.className = 'q'; q.type = 'number'; q.min = 1; q.max = 30; q.value = r.answers.length;
       q.setAttribute('inputmode', 'numeric');
@@ -336,10 +440,12 @@
         while (r.answers.length < n) { r.answers.push(''); r.scores.push(''); }
         r.answers.length = n; r.scores.length = n;
         if (followed) { r.points = n; pts.value = n; }
-        renderAnswers(); save();
+        renderAnswers();
+        send({ op: 'resize', id: r.id, n: n }, null, true);
       };
       var pts = document.createElement('input');
       pts.className = 'q'; pts.value = num(available(r)); pts.autocomplete = 'off';
+      pts.dataset.k = 'pts|' + r.id;
       pts.setAttribute('inputmode', 'decimal'); pts.setAttribute('aria-label', 'Available points');
       pts.oninput = function () {
         if (setPoints(r, pts.value, pts) && i === state.current) $('points').value = pts.value.trim();
@@ -350,8 +456,10 @@
         if ((r.answers.some(function (a) { return a; }) || tally(r).marked) &&
             !confirm('Remove this round and its answers?')) return;
         state.rounds.splice(i, 1);
-        if (state.current >= state.rounds.length) state.current = Math.max(0, state.rounds.length - 1);
-        renderAll(); saveNow();
+        if (i < state.current) state.current--;
+        state.current = Math.max(0, Math.min(state.current, state.rounds.length - 1));
+        renderAll();
+        send({ op: 'delRound', id: r.id }, null, true);
       };
       row.appendChild(name); row.appendChild(q); row.appendChild(pts); row.appendChild(del); box.appendChild(row);
     });
@@ -365,7 +473,8 @@
   }
   $('captions').onclick = function () {
     state.captions = !state.captions;
-    renderCaptions(); saveNow(); $('captions').blur();
+    renderCaptions(); $('captions').blur();
+    send({ op: 'set', key: 'captions', value: state.captions }, 'set|captions', true);
   };
 
   $('add').onclick = function () {
@@ -373,8 +482,10 @@
     var n = last ? last.answers.length : 10;
     var answers = [], scores = [];
     for (var i = 0; i < n; i++) { answers.push(''); scores.push(''); }
-    state.rounds.push({ name: '', answers: answers, scores: scores, points: n });
-    renderAll(); saveNow();
+    var id = uid();
+    state.rounds.push({ id: id, name: '', answers: answers, scores: scores, points: n });
+    renderAll();
+    send({ op: 'addRound', id: id, n: n }, null, true);
     var names = $('rounds').querySelectorAll('.rnd input:not(.q)');
     names[names.length - 1].focus();
   };
@@ -385,15 +496,20 @@
       r.scores = r.answers.slice();
     });
     state.current = 0;
-    renderAll(); saveNow();
+    renderAll();
+    send({ op: 'clear' }, null, true);
   };
+  function setVideo(id) {
+    state.videoId = id;
+    renderVideos();
+    send({ op: 'set', key: 'videoId', value: id }, 'set|videoId', true);
+  }
   $('video').onchange = function () {
     var id = videoIdFrom($('video').value), msg = $('videoMsg');
-    if (!$('video').value.trim()) { state.videoId = ''; msg.textContent = ''; saveNow(); return; }
+    if (!$('video').value.trim()) { msg.textContent = ''; setVideo(''); return; }
     if (!id) { msg.className = 'hint warn'; msg.textContent = "That doesn't look like a YouTube link."; return; }
-    state.videoId = id;
     msg.className = 'hint'; msg.textContent = 'Video set. It will start on the TV.';
-    saveNow(); renderVideos();
+    setVideo(id);
   };
 
   // ---- Browsing a channel's or playlist's recent videos ----
@@ -416,10 +532,9 @@
       b.onclick = function () {
         if (v.id === state.videoId) return;
         if (state.videoId && !confirm('Switch the TV to "' + v.title + '"?')) return;
-        state.videoId = v.id;
         $('video').value = 'https://youtu.be/' + v.id;
         $('videoMsg').textContent = '';
-        saveNow(); renderVideos();
+        setVideo(v.id);
       };
       box.appendChild(b);
     });
@@ -444,13 +559,9 @@
   }
   $('list').onchange = function () {
     state.listUrl = $('list').value.trim();
-    // Save first so the TV knows the link before it is asked for the list.
-    clearTimeout(saveTimer);
-    setStatus('Saving…');
-    fetch('/api/state', { method: 'POST', body: encode(state),
-                          headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      .then(function (r) { if (!r.ok) throw new Error(); setStatus('Saved'); loadVideos(true); })
-      .catch(function () { setStatus('Not saved: TV unreachable', true); });
+    // The TV must know the link before it is asked for the list.
+    afterSave = function () { loadVideos(true); };
+    send({ op: 'set', key: 'listUrl', value: state.listUrl }, 'set|listUrl', true);
   };
   $('refresh').onclick = function () { loadVideos(true); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (b) {
@@ -458,24 +569,17 @@
   });
 
   fetch('/api/state').then(function (r) { return r.json(); }).then(function (s) {
-    state = s;
-    state.rounds = state.rounds || [];
-    state.rounds.forEach(function (r) {           // rounds saved before scoring existed
-      r.scores = r.scores || [];
-      while (r.scores.length < r.answers.length) r.scores.push('');
-      r.scores.length = r.answers.length;
-      if (isNaN(parseFloat(r.points))) r.points = r.answers.length;
-    });
+    state = s; rev = s.rev;
     if (state.videoId) $('video').value = 'https://youtu.be/' + state.videoId;
-    state.listUrl = state.listUrl || '';
-    renderCaptions();
     $('list').value = state.listUrl;
+    renderCaptions();
     if (desktop || !state.rounds.length) $('setup').open = true;
     if (desktop || !state.videoId) $('vidcard').open = true;
     loadVideos(false);
     renderAll();
     setStatus('Connected');
-  }).catch(function () { setStatus('TV unreachable', true); });
+    setInterval(poll, 1200);
+  }).catch(function () { setStatus('TV unreachable: reload to retry', true); });
 </script>
 </body>
 </html>

@@ -20,6 +20,9 @@ same Wi-Fi, to:
 
 The quiz and the video position are remembered if the app is closed.
 
+Several people can have the control page open at once. Each edit saves only
+the box that changed, and every open page updates within a second or two.
+
 ## Remote
 
 | Button | Action |

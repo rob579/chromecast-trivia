@@ -45,6 +45,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean pageReady = false;
+    // Starts from the clock so pages left open across an app restart notice the change.
+    private long rev = System.currentTimeMillis();
     private String serverError = null;
 
     private final Runnable positionSaver = new Runnable() {
@@ -60,6 +62,14 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        try {
+            // Brings a quiz saved by an older version up to date (round ids etc).
+            synchronized (this) {
+                saveState(QuizState.normalise(new JSONObject(getState())));
+            }
+        } catch (Exception e) {
+            prefs.edit().remove("state").commit();
+        }
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
@@ -101,51 +111,39 @@ public class MainActivity extends Activity {
     // ---- Quiz state: one JSON document, kept across restarts ----
 
     synchronized String getState() {
-        return prefs.getString("state", "{\"videoId\":\"\",\"listUrl\":\"\",\"current\":0,\"rounds\":[]}");
+        return prefs.getString("state", "{}");
     }
 
-    /** Called from the web server thread when the phone saves a change. */
-    synchronized void setState(String json) throws Exception {
-        JSONObject in = new JSONObject(json);
-        JSONObject out = new JSONObject();
-        out.put("videoId", in.optString("videoId", "").trim());
-        out.put("listUrl", in.optString("listUrl", "").trim());
-        out.put("captions", in.optBoolean("captions", false));
-        JSONArray rounds = in.optJSONArray("rounds");
-        JSONArray cleanRounds = new JSONArray();
-        if (rounds != null) {
-            for (int i = 0; i < rounds.length(); i++) {
-                JSONObject r = rounds.optJSONObject(i);
-                if (r == null) continue;
-                JSONObject cr = new JSONObject();
-                cr.put("name", r.optString("name", ""));
-                JSONArray answers = r.optJSONArray("answers");
-                JSONArray cleanAnswers = new JSONArray();
-                if (answers != null) {
-                    for (int j = 0; j < answers.length(); j++) {
-                        cleanAnswers.put(answers.optString(j, ""));
-                    }
-                }
-                cr.put("answers", cleanAnswers);
-                // One score per answer; an empty string means "not marked yet".
-                JSONArray scores = r.optJSONArray("scores");
-                JSONArray cleanScores = new JSONArray();
-                for (int j = 0; j < cleanAnswers.length(); j++) {
-                    cleanScores.put(scores == null ? "" : scores.optString(j, ""));
-                }
-                cr.put("scores", cleanScores);
-                double points = r.optDouble("points", Double.NaN);
-                if (!Double.isNaN(points) && !Double.isInfinite(points) && points >= 0) {
-                    cr.put("points", points);
-                }
-                cleanRounds.put(cr);
-            }
+    /** The quiz plus its revision number, which goes up on every change. */
+    synchronized String getStateWithRev() throws Exception {
+        return new JSONObject(getState()).put("rev", rev).toString();
+    }
+
+    synchronized long getRev() {
+        return rev;
+    }
+
+    /**
+     * Applies a batch of small changes sent by a control page. Called from the
+     * web server thread; changes from different devices are applied one batch
+     * at a time, so nobody's edit to a different box is lost.
+     */
+    synchronized String applyOps(String json) throws Exception {
+        JSONArray ops = new JSONArray(json);
+        JSONObject state = new JSONObject(getState());
+        for (int i = 0; i < ops.length(); i++) {
+            JSONObject op = ops.optJSONObject(i);
+            if (op != null) QuizState.apply(state, op);
         }
-        out.put("rounds", cleanRounds);
-        int current = in.optInt("current", 0);
-        out.put("current", Math.max(0, Math.min(current, Math.max(0, cleanRounds.length() - 1))));
-        prefs.edit().putString("state", out.toString()).apply();
+        saveState(QuizState.normalise(state));
         handler.post(this::pushState);
+        return getStateWithRev();
+    }
+
+    private void saveState(JSONObject state) {
+        // commit(), not apply(): the next read must see this write.
+        prefs.edit().putString("state", state.toString()).commit();
+        rev++;
     }
 
     /** Sends the quiz, the control page address and its QR code to the TV page. */

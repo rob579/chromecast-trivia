@@ -43,15 +43,22 @@ class ControlServer extends NanoHTTPD {
                         "text/html; charset=utf-8", app.readAsset("control.html")));
             }
             if (uri.equals("/api/state")) {
-                if (post) {
-                    String json = body.get("postData");
-                    if (json == null) {
-                        return error(Response.Status.BAD_REQUEST, "Empty request");
-                    }
-                    app.setState(json);
+                // Pages poll this; if nothing changed since the revision they
+                // already have, they get a tiny "no change" reply.
+                String have = session.getParms().get("rev");
+                long rev = app.getRev();
+                String reply = String.valueOf(rev).equals(have)
+                        ? "{\"rev\":" + rev + "}" : app.getStateWithRev();
+                return noCache(newFixedLengthResponse(Response.Status.OK,
+                        "application/json; charset=utf-8", reply));
+            }
+            if (uri.equals("/api/ops") && post) {
+                String json = body.get("postData");
+                if (json == null) {
+                    return error(Response.Status.BAD_REQUEST, "Empty request");
                 }
                 return noCache(newFixedLengthResponse(Response.Status.OK,
-                        "application/json; charset=utf-8", app.getState()));
+                        "application/json; charset=utf-8", app.applyOps(json)));
             }
             if (uri.equals("/api/videos")) {
                 boolean refresh = session.getParms().containsKey("refresh");
