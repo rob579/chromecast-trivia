@@ -126,6 +126,17 @@ public class MainActivity extends Activity {
                     }
                 }
                 cr.put("answers", cleanAnswers);
+                // One score per answer; an empty string means "not marked yet".
+                JSONArray scores = r.optJSONArray("scores");
+                JSONArray cleanScores = new JSONArray();
+                for (int j = 0; j < cleanAnswers.length(); j++) {
+                    cleanScores.put(scores == null ? "" : scores.optString(j, ""));
+                }
+                cr.put("scores", cleanScores);
+                double points = r.optDouble("points", Double.NaN);
+                if (!Double.isNaN(points) && !Double.isInfinite(points) && points >= 0) {
+                    cr.put("points", points);
+                }
                 cleanRounds.put(cr);
             }
         }

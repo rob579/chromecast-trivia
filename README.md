@@ -14,6 +14,8 @@ same Wi-Fi, to:
 - set up rounds (name and number of questions)
 - choose the current round
 - type answers, which appear on the TV as you type
+- record a score per answer and the points each round is worth; the TV shows
+  the round score and the quiz total
 - play, pause and skip
 
 The quiz and the video position are remembered if the app is closed.

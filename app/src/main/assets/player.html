@@ -19,8 +19,12 @@
              display: flex; align-items: center; }
   #roundbox { flex: 1; min-width: 0; text-align: center; padding: 0 1vw; }
   #roundnum { font-size: 3vh; color: #9fb0e0; margin-bottom: 1vh; }
-  #round   { font-size: 7vh; font-weight: bold; color: #ffcd3c; line-height: 1.1;
-             overflow: hidden; max-height: 16vh; }
+  #round   { font-size: 6.2vh; font-weight: bold; color: #ffcd3c; line-height: 1.1;
+             overflow: hidden; max-height: 13.8vh; }
+  #scores  { display: flex; justify-content: center; gap: 4vw; margin-top: 1.6vh; }
+  .score   { display: none; }
+  .score .l { font-size: 2.3vh; color: #9fb0e0; }
+  .score .v { font-size: 5vh; font-weight: bold; }
   #qrbox   { width: 17vw; text-align: center; font-size: 2.7vh; color: #e8ecf8; }
   #qrlabel { font-size: 2vh; color: #9fb0e0; }
   #qr      { width: 17vh; height: 17vh; border-radius: 1vh; display: none; margin: 0 auto 1vh; }
@@ -49,7 +53,12 @@
 <div id="status"></div>
 
 <div id="bottom">
-  <div id="roundbox"><div id="roundnum"></div><div id="round"></div></div>
+  <div id="roundbox"><div id="roundnum"></div><div id="round"></div>
+    <div id="scores">
+      <div class="score" id="rscore"><div class="l">This round</div><div class="v" id="rscorev"></div></div>
+      <div class="score" id="qscore"><div class="l">Quiz total</div><div class="v" id="qscorev"></div></div>
+    </div>
+  </div>
   <div id="qrbox"><img id="qr" alt=""><div id="qrlabel">Control page</div><div id="url"></div></div>
 </div>
 
@@ -85,8 +94,33 @@
     syncVideo();
   };
 
+  // ---- Scores ----
+  function num(x) { return String(Math.round(x * 100) / 100); }
+  function tally(r) {            // points scored in a round, and whether any answer is marked
+    var sum = 0, marked = false;
+    (r.scores || []).forEach(function (s) {
+      var v = parseFloat(s);
+      if (!isNaN(v)) { sum += v; marked = true; }
+    });
+    return { sum: sum, marked: marked };
+  }
+  function available(r) {        // what the round is worth; defaults to one point per question
+    var p = parseFloat(r.points);
+    return isNaN(p) ? (r.answers || []).length : p;
+  }
+  function renderScores(rounds, r) {
+    var mine = r ? tally(r) : { marked: false };
+    $('rscore').style.display = mine.marked ? 'block' : 'none';
+    if (mine.marked) $('rscorev').textContent = num(mine.sum) + ' / ' + num(available(r));
+    var got = 0, total = 0;
+    rounds.forEach(function (x) { got += tally(x).sum; total += available(x); });
+    $('qscore').style.display = rounds.length ? 'block' : 'none';
+    $('qscorev').textContent = num(got) + ' / ' + num(total);
+  }
+
   function render() {
     var st = env.state, rounds = st.rounds || [], r = rounds[st.current];
+    renderScores(rounds, r);
 
     if (env.qr) { $('qr').src = env.qr; $('qr').style.display = 'block'; }
     else { $('qr').style.display = 'none'; }

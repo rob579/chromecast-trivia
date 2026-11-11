@@ -29,7 +29,16 @@
   .ans { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .ans span { width: 26px; text-align: right; color: #ffcd3c; font-weight: 600; flex: none; }
   .rnd { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-  .rnd .q { width: 70px; flex: none; text-align: center; }
+  .rnd .q { width: 64px; flex: none; text-align: center; padding: 11px 4px; }
+  .cols { display: flex; gap: 8px; font-size: 12px; color: #9fb0e0; margin-top: 8px; }
+  .cols span { width: 64px; text-align: center; flex: none; }
+  .cols span:first-child { flex: 1; text-align: left; width: auto; }
+  .ans .sc { width: 64px; flex: none; text-align: center; padding: 11px 4px; }
+  .bad { outline: 2px solid #ff7b7b; }
+  #roundbar { display: none; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  #roundbar label { color: #9fb0e0; font-size: 14px; }
+  #points { width: 72px; text-align: center; padding: 11px 4px; }
+  #totals { margin-left: auto; font-size: 14px; color: #ffcd3c; font-weight: 600; text-align: right; }
   .rnd button { flex: none; padding: 12px; }
   summary { font-weight: 600; padding: 4px 0; cursor: pointer; }
   .row { display: flex; gap: 8px; margin-top: 12px; }
@@ -77,8 +86,14 @@
 <div class="card" id="anscard">
   <p class="label">Current round (shown on the TV)</p>
   <div id="chips"></div>
+  <div id="roundbar">
+    <label for="points">Available points for this round</label>
+    <input id="points" inputmode="decimal" autocomplete="off">
+    <div id="totals"></div>
+  </div>
+  <div class="cols" id="anscols" hidden><span>Answer</span><span>Score</span></div>
   <div id="answers"></div>
-  <p class="hint" id="keys">Keyboard: Enter or ↓ next answer · ↑ previous answer · Alt+↓ / Alt+↑ next / previous round · Esc play / pause</p>
+  <p class="hint" id="keys">Keyboard: Enter or ↓ next row · ↑ previous row · Tab from an answer to its score · Alt+↓ / Alt+↑ next / previous round · Esc play / pause</p>
 </div>
 
 <details class="card" id="vidcard">
@@ -97,11 +112,11 @@
 
 <details class="card" id="setup">
   <summary>Rounds</summary>
-  <p class="label" style="margin-top:12px">Name and number of questions</p>
+  <div class="cols"><span>Round name</span><span>Questions</span><span>Points</span><span style="width:42px"></span></div>
   <div id="rounds"></div>
   <div class="row">
     <button id="add">Add round</button>
-    <button id="clear">Clear all answers</button>
+    <button id="clear">Clear answers and scores</button>
   </div>
 </details>
 </div>
@@ -150,7 +165,7 @@
     // On a laptop, land in the first empty answer ready to type.
     // Not on a phone, where it would pop the keyboard up.
     if (desktop) {
-      var inputs = $('answers').querySelectorAll('input');
+      var inputs = $('answers').querySelectorAll('.an');
       for (var k = 0; k < inputs.length; k++) {
         if (!inputs[k].value || k === inputs.length - 1) { inputs[k].focus(); break; }
       }
@@ -187,21 +202,41 @@
     if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
 
+  // ---- Scores ----
+  function num(x) { return String(Math.round(x * 100) / 100); }
+  function validNumber(text) { return text === '' || /^\d*\.?\d+$/.test(text) || /^\d+\.$/.test(text); }
+  function tally(r) {
+    var sum = 0, marked = false;
+    r.scores.forEach(function (sc) { var v = parseFloat(sc); if (!isNaN(v)) { sum += v; marked = true; } });
+    return { sum: sum, marked: marked };
+  }
+  function available(r) { var p = parseFloat(r.points); return isNaN(p) ? r.answers.length : p; }
+  function renderTotals() {
+    var r = state.rounds[state.current];
+    if (!r) { $('totals').textContent = ''; return; }
+    var got = 0, total = 0;
+    state.rounds.forEach(function (x) { got += tally(x).sum; total += available(x); });
+    var mine = tally(r);
+    $('totals').textContent = (mine.marked ? 'Round ' + num(mine.sum) + ' / ' + num(available(r)) + ' · ' : '') +
+                              'Quiz ' + num(got) + ' / ' + num(total);
+  }
+
   function renderAnswers() {
     var box = $('answers');
     box.textContent = '';
     var r = state.rounds[state.current];
+    $('roundbar').style.display = r ? 'flex' : 'none';
+    $('anscols').hidden = !r;
+    renderTotals();
     if (!r) return;
-    r.answers.forEach(function (a, i) {
-      var row = document.createElement('div'); row.className = 'ans';
-      var n = document.createElement('span'); n.textContent = i + 1;
-      var inp = document.createElement('input');
-      inp.value = a; inp.autocomplete = 'off';
-      inp.setAttribute('enterkeyhint', i === r.answers.length - 1 ? 'done' : 'next');
-      inp.oninput = function () { r.answers[i] = inp.value; save(); };
+    $('points').value = num(available(r));
+    $('points').classList.remove('bad');
+
+    // Enter / arrows move up and down within a column (answers or scores).
+    function nav(inp, selector, i) {
       inp.onkeydown = function (ev) {
         if (ev.altKey) return;
-        var all = box.querySelectorAll('input');
+        var all = box.querySelectorAll(selector);
         if (ev.key === 'Enter' || ev.key === 'ArrowDown') {
           ev.preventDefault();
           if (all[i + 1]) all[i + 1].focus(); else if (ev.key === 'Enter') inp.blur();
@@ -210,9 +245,43 @@
           if (all[i - 1]) all[i - 1].focus();
         }
       };
-      row.appendChild(n); row.appendChild(inp); box.appendChild(row);
+    }
+    r.answers.forEach(function (a, i) {
+      var row = document.createElement('div'); row.className = 'ans';
+      var n = document.createElement('span'); n.textContent = i + 1;
+      var inp = document.createElement('input');
+      inp.className = 'an'; inp.value = a; inp.autocomplete = 'off';
+      inp.setAttribute('enterkeyhint', i === r.answers.length - 1 ? 'done' : 'next');
+      inp.oninput = function () { r.answers[i] = inp.value; save(); };
+      nav(inp, '.an', i);
+      var sc = document.createElement('input');
+      sc.className = 'sc'; sc.value = r.scores[i]; sc.autocomplete = 'off';
+      sc.setAttribute('inputmode', 'decimal'); sc.setAttribute('aria-label', 'Score for answer ' + (i + 1));
+      sc.oninput = function () {
+        var text = sc.value.trim(), ok = validNumber(text);
+        sc.classList.toggle('bad', !ok);
+        if (!ok) return;                 // keep the last good value until it's a number
+        r.scores[i] = text;
+        renderTotals(); save();
+      };
+      nav(sc, '.sc', i);
+      row.appendChild(n); row.appendChild(inp); row.appendChild(sc); box.appendChild(row);
     });
   }
+
+  function setPoints(r, text, field) {
+    text = text.trim();
+    var ok = text !== '' && validNumber(text);
+    field.classList.toggle('bad', !ok);
+    if (!ok) return false;
+    r.points = parseFloat(text);
+    renderTotals(); save();
+    return true;
+  }
+  $('points').oninput = function () {
+    var r = state.rounds[state.current];
+    if (r && setPoints(r, $('points').value, $('points'))) renderRounds();
+  };
 
   function renderRounds() {
     var box = $('rounds');
@@ -228,20 +297,28 @@
       q.onchange = function () {
         var n = Math.max(1, Math.min(30, parseInt(q.value, 10) || r.answers.length));
         q.value = n;
-        while (r.answers.length < n) r.answers.push('');
-        r.answers.length = n;
+        var followed = available(r) === r.answers.length;   // points still "one per question"
+        while (r.answers.length < n) { r.answers.push(''); r.scores.push(''); }
+        r.answers.length = n; r.scores.length = n;
+        if (followed) { r.points = n; pts.value = n; }
         renderAnswers(); save();
+      };
+      var pts = document.createElement('input');
+      pts.className = 'q'; pts.value = num(available(r)); pts.autocomplete = 'off';
+      pts.setAttribute('inputmode', 'decimal'); pts.setAttribute('aria-label', 'Available points');
+      pts.oninput = function () {
+        if (setPoints(r, pts.value, pts) && i === state.current) $('points').value = pts.value.trim();
       };
       var del = document.createElement('button');
       del.textContent = '✕'; del.setAttribute('aria-label', 'Remove round');
       del.onclick = function () {
-        if (r.answers.some(function (a) { return a; }) &&
+        if ((r.answers.some(function (a) { return a; }) || tally(r).marked) &&
             !confirm('Remove this round and its answers?')) return;
         state.rounds.splice(i, 1);
         if (state.current >= state.rounds.length) state.current = Math.max(0, state.rounds.length - 1);
         renderAll(); saveNow();
       };
-      row.appendChild(name); row.appendChild(q); row.appendChild(del); box.appendChild(row);
+      row.appendChild(name); row.appendChild(q); row.appendChild(pts); row.appendChild(del); box.appendChild(row);
     });
   }
 
@@ -250,15 +327,19 @@
   $('add').onclick = function () {
     var last = state.rounds[state.rounds.length - 1];
     var n = last ? last.answers.length : 10;
-    var answers = []; for (var i = 0; i < n; i++) answers.push('');
-    state.rounds.push({ name: '', answers: answers });
+    var answers = [], scores = [];
+    for (var i = 0; i < n; i++) { answers.push(''); scores.push(''); }
+    state.rounds.push({ name: '', answers: answers, scores: scores, points: n });
     renderAll(); saveNow();
     var names = $('rounds').querySelectorAll('.rnd input:not(.q)');
     names[names.length - 1].focus();
   };
   $('clear').onclick = function () {
-    if (!confirm('Clear every answer in every round? Round names are kept.')) return;
-    state.rounds.forEach(function (r) { r.answers = r.answers.map(function () { return ''; }); });
+    if (!confirm('Clear every answer and score in every round? Round names and points are kept.')) return;
+    state.rounds.forEach(function (r) {
+      r.answers = r.answers.map(function () { return ''; });
+      r.scores = r.answers.slice();
+    });
     state.current = 0;
     renderAll(); saveNow();
   };
@@ -335,6 +416,12 @@
   fetch('/api/state').then(function (r) { return r.json(); }).then(function (s) {
     state = s;
     state.rounds = state.rounds || [];
+    state.rounds.forEach(function (r) {           // rounds saved before scoring existed
+      r.scores = r.scores || [];
+      while (r.scores.length < r.answers.length) r.scores.push('');
+      r.scores.length = r.answers.length;
+      if (isNaN(parseFloat(r.points))) r.points = r.answers.length;
+    });
     if (state.videoId) $('video').value = 'https://youtu.be/' + state.videoId;
     state.listUrl = state.listUrl || '';
     $('list').value = state.listUrl;
